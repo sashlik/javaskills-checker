@@ -63,6 +63,7 @@
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 				<configuration>
+					<finalName>javaskills-checker</finalName>
 					<excludes>
 						<exclude>
 							<groupId>org.projectlombok</groupId>
