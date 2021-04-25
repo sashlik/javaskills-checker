@@ -14,6 +14,9 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 
 @Component
 @Slf4j
@@ -23,12 +26,19 @@ public class ApiTester implements ApplicationListener<ApplicationReadyEvent> {
     private final Generator generator;
     private final CallRepository callRepository;
     private final String apiEndpoint;
+    private final Integer highloadClients;
+    private final Integer highloadCallPerClient;
 
-    public ApiTester(@Value("${api.endpoint}") String apiEndpoint, ApplicationContext appContext, Generator generator, CallRepository callRepository) {
+    public ApiTester(@Value("${api.endpoint}") String apiEndpoint,
+                     @Value("${highload.clients:10}") Integer highloadClients,
+                     @Value("${highload.callPerClient:10}") Integer highloadCallPerClient,
+                     ApplicationContext appContext, Generator generator, CallRepository callRepository) {
         this.apiEndpoint = apiEndpoint;
         this.appContext = appContext;
         this.generator = generator;
         this.callRepository = callRepository;
+        this.highloadClients = highloadClients;
+        this.highloadCallPerClient = highloadCallPerClient;
     }
 
     @Override
@@ -38,7 +48,7 @@ public class ApiTester implements ApplicationListener<ApplicationReadyEvent> {
         ApiCallResult authTest1 = callApi(generator.generateAndStore(), false);
         ApiCallResult authTest2 = callApi(generator.generateAndStore(), true);
 
-        if (!authTest1.ok()) {
+       if (!authTest1.ok()) {
             System.out.print(authTestDescr + " FAILED: " + authTest1.getDescription());
             terminate();
             return;
@@ -80,38 +90,73 @@ public class ApiTester implements ApplicationListener<ApplicationReadyEvent> {
             return;
         }
 
+
+
+        Thread[] callers = new Thread[highloadClients];
+        FutureTask<Boolean>[] tasks = new FutureTask[highloadClients];
+        AtomicInteger successCounter = new AtomicInteger(0);
+
+
+        IntStream.range(0, tasks.length).forEach(i -> {
+            tasks[i] = new FutureTask<Boolean>(() -> {
+                IntStream.range(0, highloadCallPerClient).forEach(j -> {
+                    if (test("Нагрузочный тест", TestStrategy.HIGHLOAD)) {
+                        successCounter.incrementAndGet();
+                        try {
+                            Thread.sleep(500L);
+                        } catch (InterruptedException e) {}
+                    }
+                });
+                return true;
+
+            });
+            callers[i] = new Thread(tasks[i]);
+            callers[i].start();
+        });
+
+
+        System.out.println("Нагрузочный тест");
+        try {
+            Thread.sleep(highloadCallPerClient  * 1000); // 1 sec per call + 500 millis between calls
+            int success = successCounter.get();
+            int total = highloadClients * highloadCallPerClient;
+            String result = success == 0 ? "FAILED" :
+                              success ==  total ? "OK" : "UNSTABLE";
+            System.out.println(" " + result + " " + success + " из " + total);
+        } catch (InterruptedException e) {
+            System.out.println(" FAILED " + e.getMessage());
+        }
+
         System.out.println("Все проверки пройдены OK!");
         terminate();
-
-
     }
 
     private boolean test(String testDescription, TestStrategy testStrategy) {
-        System.out.print(testDescription);
+        if (TestStrategy.HIGHLOAD != testStrategy) System.out.print(testDescription);
         Integer id = generator.generateAndStore(testStrategy);
         ApiCallResult apiCallResult = callApi(id);
         if (!apiCallResult.ok()) {
-            System.out.println(" FAILED: " + apiCallResult.getDescription());
+            if (TestStrategy.HIGHLOAD != testStrategy) System.out.println(" FAILED: " + apiCallResult.getDescription());
             return false;
         } else {
             ApiCallContext callContext = callRepository.get(id);
             callContext.setResult(apiCallResult.getApiResponse());
             if (testStrategy == TestStrategy.ASYNC) {
                 if (callContext.isConfirmed()) {
-                    System.out.println(" OK!");
+                    if (TestStrategy.HIGHLOAD != testStrategy) System.out.println(" OK!");
                     return true;
                 } else {
-                    System.out.println(" FAILED\n Запросы необходимо отправлять параллельно");
+                    if (TestStrategy.HIGHLOAD != testStrategy) System.out.println(" FAILED\n Запросы необходимо отправлять параллельно");
                     return false;
                 }
             }
 
 
             if (callContext.resultMatch()) {
-                System.out.println(" OK!");
+                if (TestStrategy.HIGHLOAD != testStrategy) System.out.println(" OK!");
                 return true;
             } else {
-                System.out.println(" FAILED\nОжидалось " + callContext.expected() + "\nПришло " + callContext.getResult());
+                if (TestStrategy.HIGHLOAD != testStrategy) System.out.println(" FAILED\nОжидалось " + callContext.expected() + "\nПришло " + callContext.getResult());
                 return false;
             }
         }
