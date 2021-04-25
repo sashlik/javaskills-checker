@@ -30,7 +30,7 @@ public class ApiTester implements ApplicationListener<ApplicationReadyEvent> {
     private final Integer highloadCallPerClient;
 
     public ApiTester(@Value("${api.endpoint}") String apiEndpoint,
-                     @Value("${highload.clients:10}") Integer highloadClients,
+                     @Value("${highload.clients:5}") Integer highloadClients,
                      @Value("${highload.callPerClient:10}") Integer highloadCallPerClient,
                      ApplicationContext appContext, Generator generator, CallRepository callRepository) {
         this.apiEndpoint = apiEndpoint;
