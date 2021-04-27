@@ -28,9 +28,10 @@ public class ApiTester implements ApplicationListener<ApplicationReadyEvent> {
     private final String apiEndpoint;
     private final Integer highloadClients;
     private final Integer highloadCallPerClient;
+    private Integer score = 0;
 
     public ApiTester(@Value("${api.endpoint}") String apiEndpoint,
-                     @Value("${highload.clients:5}") Integer highloadClients,
+                     @Value("${highload.clients:3}") Integer highloadClients,
                      @Value("${highload.callPerClient:10}") Integer highloadCallPerClient,
                      ApplicationContext appContext, Generator generator, CallRepository callRepository) {
         this.apiEndpoint = apiEndpoint;
@@ -57,35 +58,36 @@ public class ApiTester implements ApplicationListener<ApplicationReadyEvent> {
             terminate();
             return;
         } else {
-            System.out.println(authTestDescr + " OK!");
+            score += 30;
+            System.out.println(authTestDescr + " OK! +30");
         }
 
-        if (!test("Проверка результата работы API", null)) {
+        if (!test("Проверка результата работы API", null, 50)) {
             terminate();
             return;
         }
 
 
-        if (!test("Тест на таймаут веб-сервиса", TestStrategy.WS_TIMEOUT)) {
+        if (!test("Тест на таймаут веб-сервиса", TestStrategy.WS_TIMEOUT, 30)) {
             terminate();
             return;
         }
 
-        if (!test("Тест на таймаут REST сервиса", TestStrategy.RS_TIMEOUT)) {
+        if (!test("Тест на таймаут REST сервиса", TestStrategy.RS_TIMEOUT, 30)) {
             terminate();
             return;
         }
 
-        if (!test("Тест на ошибку от веб-сервиса", TestStrategy.WS_ERROR)) {
+        if (!test("Тест на ошибку от веб-сервиса", TestStrategy.WS_ERROR, 30)) {
             terminate();
             return;
         }
 
-        if (!test("Тест на ошибку от REST сервиса", TestStrategy.RS_ERROR)) {
+        if (!test("Тест на ошибку от REST сервиса", TestStrategy.RS_ERROR, 30)) {
             terminate();
             return;
         }
-        if (!test("Тест на параллельность вызовов сервисов", TestStrategy.ASYNC)) {
+        if (!test("Тест на параллельность вызовов сервисов", TestStrategy.ASYNC, 50)) {
             terminate();
             return;
         }
@@ -98,9 +100,9 @@ public class ApiTester implements ApplicationListener<ApplicationReadyEvent> {
 
 
         IntStream.range(0, tasks.length).forEach(i -> {
-            tasks[i] = new FutureTask<Boolean>(() -> {
+            tasks[i] = new FutureTask<>(() -> {
                 IntStream.range(0, highloadCallPerClient).forEach(j -> {
-                    if (test("Нагрузочный тест", TestStrategy.HIGHLOAD)) {
+                    if (test("Нагрузочный тест", TestStrategy.HIGHLOAD, 0)) {
                         successCounter.incrementAndGet();
                         try {
                             Thread.sleep(500L);
@@ -115,14 +117,20 @@ public class ApiTester implements ApplicationListener<ApplicationReadyEvent> {
         });
 
 
-        System.out.println("Нагрузочный тест");
+        System.out.print("Нагрузочный тест");
         try {
-            Thread.sleep(highloadCallPerClient  * 1000); // 1 sec per call + 500 millis between calls
+            Thread.sleep(highloadCallPerClient  * 1000); // 1 sec per call
             int success = successCounter.get();
             int total = highloadClients * highloadCallPerClient;
+            int hlScore = 0;
+            if (total != 0) {
+                hlScore = success * 50 / total;
+            }
+
             String result = success == 0 ? "FAILED" :
                               success ==  total ? "OK" : "UNSTABLE";
-            System.out.println(" " + result + " " + success + " из " + total);
+            System.out.println(" (" + result + " " + success + " из " + total + ") +" + hlScore);
+            score += hlScore;
         } catch (InterruptedException e) {
             System.out.println(" FAILED " + e.getMessage());
         }
@@ -131,7 +139,7 @@ public class ApiTester implements ApplicationListener<ApplicationReadyEvent> {
         terminate();
     }
 
-    private boolean test(String testDescription, TestStrategy testStrategy) {
+    private boolean test(String testDescription, TestStrategy testStrategy, int scorePerTest) {
         if (TestStrategy.HIGHLOAD != testStrategy) System.out.print(testDescription);
         Integer id = generator.generateAndStore(testStrategy);
         ApiCallResult apiCallResult = callApi(id);
@@ -143,17 +151,19 @@ public class ApiTester implements ApplicationListener<ApplicationReadyEvent> {
             callContext.setResult(apiCallResult.getApiResponse());
             if (testStrategy == TestStrategy.ASYNC) {
                 if (callContext.isConfirmed()) {
-                    if (TestStrategy.HIGHLOAD != testStrategy) System.out.println(" OK!");
+                   System.out.println(" OK! +" + scorePerTest);
+                    score += scorePerTest;
                     return true;
                 } else {
-                    if (TestStrategy.HIGHLOAD != testStrategy) System.out.println(" FAILED\n Запросы необходимо отправлять параллельно");
+                    System.out.println(" FAILED\n Запросы необходимо отправлять параллельно");
                     return false;
                 }
             }
 
 
             if (callContext.resultMatch()) {
-                if (TestStrategy.HIGHLOAD != testStrategy) System.out.println(" OK!");
+                if (TestStrategy.HIGHLOAD != testStrategy) System.out.println(" OK! +" + scorePerTest);
+                score += scorePerTest;
                 return true;
             } else {
                 if (TestStrategy.HIGHLOAD != testStrategy) System.out.println(" FAILED\nОжидалось " + callContext.expected() + "\nПришло " + callContext.getResult());
@@ -163,6 +173,8 @@ public class ApiTester implements ApplicationListener<ApplicationReadyEvent> {
     }
 
     private void terminate() {
+        System.out.println("\nИтого баллов: " + score);
+
         SpringApplication.exit(appContext, () -> 0);
     }
 
