@@ -9,7 +9,7 @@ import ru.hilariousstartups.javaskills.checker.apitester.CallRepository;
 import ru.hilariousstartups.javaskills.checker.apitester.TestStrategy;
 
 @RestController
-@RequestMapping(value = "/api/v1", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+@RequestMapping(value = "/api/v1", produces = MediaType.APPLICATION_JSON_VALUE)
 public class RsEndpoint {
 
     private final CallRepository callRepository;
